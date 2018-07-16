@@ -1,0 +1,83 @@
+name: 'app'
+type: 'php:5.6'
+build:
+    flavor: drupal
+dependencies:
+    php:
+        "drush/drush": "^8.0"
+relationships:
+    database: 'mysqldb:mysql'
+web:
+    locations:
+        '/':
+            root: 'public'
+            expires: 5m
+            passthru: '/index.php'
+            allow: false
+            rules:
+                '\.(jpe?g|png|gif|svgz?|css|js|map|pdfx?|docx?|xlsx?|mov|mp4|mp3|ico|bmp|eot|woff2?|otf|ttf)$':
+                    allow: true
+                '^/robots\.txt$':
+                    allow: true
+                '^/sitemap\.xml$':
+                    allow: true
+
+        '/sites/default/files':
+            allow: true
+            expires: 5m
+            passthru: '/index.php'
+            root: 'public/sites/default/files'
+            scripts: false
+            rules:
+                '^/sites/default/files/(css|js)':
+                    expires: 2w
+
+disk: 2048
+
+mounts:
+    '/public/sites/default/files': 'shared:files/files'
+    '/tmp': 'shared:files/tmp'
+    '/private': 'shared:files/private'
+    '/drush-backups': 'shared:files/drush-backups'
+
+# The hooks executed at various points in the lifecycle of the application.
+hooks:
+    # We run deploy hook after your application has been deployed and started.
+    build: |
+        set -e
+
+        # Install oci8 instantclient
+        cd /app
+        mkdir src
+        mv /app/public/sites/default/oracle /app/src/
+        cd /app/src/oracle
+        unzip -q instantclient-basic-linux.x64-12.2.0.1.0.zip
+        unzip -q instantclient-sdk-linux.x64-12.2.0.1.0.zip
+        rm instantclient-*-linux.x64-12.2.0.1.0.zip
+        cd /app/src/oracle/instantclient_*/
+        ln -s libclntsh.so.12.1 libclntsh.so
+        ln -s libclntshcore.so.12.1 libclntshcore.so
+        ln -s libocci.so.12.1 libocci.so
+
+        # Install libaio linux package
+        mv /app/public/sites/default/build/libaio_0.3.111.orig.tar.gz /app/
+        cd /app
+        tar -xvzf libaio_0.3.111.orig.tar.gz
+        rm libaio_0.3.111.orig.tar.gz
+        cd /app/libaio-0.3.111
+        make prefix=`pwd`/usr install
+        cp /app/libaio-0.3.111/usr/lib/libaio.so.1.0.1 /app/src/oracle/instantclient_12_2/libaio.so.1
+        
+        # Install oci8 php extension
+        mv /app/public/sites/default/build/oci8.tar.gz /app/
+        cd /app
+        tar -xvzf oci8.tar.gz
+        rm oci8.tar.gz
+        cd oci8-2.0.6/oci8-2.0.6
+        phpize
+        ./configure --with-oci8=shared,instantclient,/app/src/oracle/instantclient_12_2
+        make
+        cd /app
+        mkdir php.d
+        echo "extension=/app/oci8-2.0.6/oci8-2.0.6/modules/oci8.so" >> /app/php.d/oci8.ini
+    
